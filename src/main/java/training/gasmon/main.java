@@ -1,6 +1,7 @@
 package training.gasmon;
 
 import com.amazonaws.AmazonServiceException;
+import com.amazonaws.services.dynamodbv2.xspec.S;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.S3Object;
@@ -31,6 +32,11 @@ public class main {
         String topicARN = "arn:aws:sns:eu-west-1:552908040772:Apprentices2018GasMon-snsTopicSensorDataPart1-1TGJVE8L26XKE";
         String queueUrl = null;
 
+
+//                deleteOldMessages deleteOldMessage = new deleteOldMessages();
+//        Thread thread = new Thread(deleteOldMessage);
+//        thread.start();
+
         final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
 
         try {
@@ -60,14 +66,76 @@ public class main {
 
             Topics.subscribeQueue(topicClient, queueClient, topicARN, queueUrl);
 
-            receiveMessagesInList(queueUrl, queueClient);
+            // messages request to receive messages
+            ReceiveMessageRequest messageRequest = receiveMessageRequest(queueUrl);
+            //wait 10 seconds so messages are received
             wait10Seconds();
+
+            final List<String> allReadings = new ArrayList<String>();
+            final List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
+
+            long startTime = System.currentTimeMillis();
+            while (true) {
+
+                //List of Messages received
+                List<Message> messages = queueClient.receiveMessage(messageRequest).getMessages();
+
+                //for each message received
+                for (Message ms : messages) {
+
+                    GsonBuilder gsonBuilder = new GsonBuilder();
+                    Gson gson = gsonBuilder.create();
+
+                    //create an object SQSMessage of whole message and gets the body - sensor message
+                    SQSMessage SQSMessage = gson.fromJson(ms.getBody(), SQSMessage.class);
+
+
+
+                    //create sensor message object of each SQSMessage message body
+                    final SensorMessage sensorMessage = gson.fromJson(SQSMessage.Message, SensorMessage.class);
+
+                    //get timestamp from sensorMessage and convert to LocalTime
+                    sensorMessage.timeFormattedTimeStamp = convertsSensorMessageTimeStampToLocalTime(sensorMessage);
+
+                    //Check if messages are duplicates before adding them to allReadings and timestamp to allTimeStamps
+                    checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(allReadings, sensorMessage, allTimeStamps);
+
+                    System.out.println(SQSMessage.Message);
+
+
+
+                    long endTime = System.currentTimeMillis();
+                    ArrayList<String> remove = new ArrayList<String>();
+                    if(endTime - startTime > 10 * 1000) {
+                        LocalTime tenSecondsAgo = LocalTime.now().minusSeconds(10);
+                        for(String message : allReadings) {
+                            if(sensorMessage.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
+                                remove.add(message);
+
+                            }
+                        }
+                        for(String i: remove){
+                            allReadings.remove(i);
+
+                        }
+                        System.out.println("new " + allReadings);
+                    }
+
+
+                }
+            }
 
         } catch (AmazonServiceException e) {
             defaultErrorMessage(e.getErrorMessage());
         } catch (IOException e) {
             defaultErrorMessage(e.getMessage());
         }
+    }
+
+    private static ReceiveMessageRequest receiveMessageRequest(String queueUrl) {
+        ReceiveMessageRequest request = new ReceiveMessageRequest(queueUrl).withMessageAttributeNames("ALL");
+        request.setMaxNumberOfMessages(10);
+        return request;
     }
 
     private static String getStringFromInputStream(S3ObjectInputStream s3is) {
@@ -124,28 +192,6 @@ public class main {
         return queueUrl;
     }
 
-    private static List<String> receiveMessagesInList(String queueUrl, AmazonSQS queueClient) {
-
-        ReceiveMessageRequest request = new ReceiveMessageRequest(queueUrl).withMessageAttributeNames("ALL");
-        request.setMaxNumberOfMessages(10);
-
-
-
-        List<String> allReadings = new ArrayList<String>();
-        List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
-
-        while (true) {
-
-            List<Message> messages = queueClient.receiveMessage(request).getMessages();
-            for (Message ms : messages) {
-
-                doThing(allReadings, ms, allTimeStamps);
-
-            }
-        }
-
-    }
-
     private static void wait10Seconds() {
         try {
             TimeUnit.SECONDS.sleep(5);
@@ -154,26 +200,8 @@ public class main {
         }
     }
 
-
-    private static void doThing(List<String> allReadings, Message ms, List<LocalTime> allTimeStamps) {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        Gson gson = gsonBuilder.create();
-
-        SQSMessage SQSMessage = gson.fromJson(ms.getBody(), SQSMessage.class);
-
-
-        System.out.println(SQSMessage.Message);
-
-        SensorMessage sensorMessage = gson.fromJson(SQSMessage.Message, SensorMessage.class);
-        System.out.println(sensorMessage.timeFormattedTimeStamp);
-
-        sensorMessage.timeFormattedTimeStamp = convertsSensorMessageTimeStampToLocalTime(sensorMessage);
-
-        checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(allReadings, sensorMessage, allTimeStamps);
-    }
-
     private static void checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(List<String> allReadings, SensorMessage sensorMessage, List<LocalTime> allTimeStamps) {
-        if(!allReadings.contains(sensorMessage.eventId)) {
+        if(allReadings.contains(sensorMessage.eventId)) {
             System.out.println("Duplicate message! It has not been added");
         } else {
             allReadings.add(sensorMessage.eventId);
@@ -202,11 +230,6 @@ public class main {
         return timeFormattedTimeStamp;
     }
 
-//        private static void deleteSensorMessagesIfRecievedAWhileAgo(List<LocalTime> allTimeStamps, SensorMessage sensorMessage) {
-//
-//        for(LocalTime readings : allTimeStamps ) {
-//            if(readings)
-//        }
-//    }
+
 }
 

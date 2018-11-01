@@ -9,4 +9,6 @@ public class SensorMessage {
     public double value;
     public long timestamp;
     public LocalTime timeFormattedTimeStamp;
+
+
 }
