@@ -10,5 +10,8 @@ public class SensorMessage {
     public long timestamp;
     public LocalTime timeFormattedTimeStamp;
 
+    public String toString() {
+        return "locationID: " + locationId + " eventID: " + eventId +  " value: " + value + " time: " + timeFormattedTimeStamp;
+    }
 
 }

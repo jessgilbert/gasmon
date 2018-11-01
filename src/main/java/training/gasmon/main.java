@@ -1,7 +1,6 @@
 package training.gasmon;
 
 import com.amazonaws.AmazonServiceException;
-import com.amazonaws.services.dynamodbv2.xspec.S;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.S3Object;
@@ -71,7 +70,8 @@ public class main {
             //wait 10 seconds so messages are received
             wait10Seconds();
 
-            final List<String> allReadings = new ArrayList<String>();
+            final List<SensorMessage> allSensorMessages = new ArrayList<SensorMessage>();
+            final List<String> allEventIDs = new ArrayList<String>();
             final List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
 
             long startTime = System.currentTimeMillis();
@@ -95,29 +95,33 @@ public class main {
                     //get timestamp from sensorMessage and convert to LocalTime
                     sensorMessage.timeFormattedTimeStamp = convertsSensorMessageTimeStampToLocalTime(sensorMessage);
 
-                    //Check if messages are duplicates before adding them to allReadings and timestamp to allTimeStamps
-                    checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(allReadings, sensorMessage, allTimeStamps);
+                    //Check if messages are duplicates before adding them to allEventIDs and timestamp to allTimeStamps
+                    if(doesMessageEventIdAlreadyExistInAllEventIDsList(allEventIDs, sensorMessage)) {
+                        allEventIDs.add(sensorMessage.eventId);
+                        allTimeStamps.add(sensorMessage.timeFormattedTimeStamp);
+                        allSensorMessages.add(sensorMessage);
+                    }
 
                     //prints out each message body as its received
-                    System.out.println(SQSMessage.Message);
+                    System.out.println(sensorMessage);
 
                     long endTime = System.currentTimeMillis();
 
-                    ArrayList<String> remove = new ArrayList<String>();
+                    ArrayList<SensorMessage> remove = new ArrayList<SensorMessage>();
                     if(endTime - startTime > 10 * 1000) {
                         startTime = endTime;
                         LocalTime tenSecondsAgo = LocalTime.now().minusSeconds(10);
-                        for(String message : allReadings) {
-                            if(sensorMessage.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
+                        for(SensorMessage message : allSensorMessages) {
+                            if(message.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
                                 remove.add(message);
 
                             }
                         }
-                        for(String i: remove){
-                            allReadings.remove(i);
+                        for(SensorMessage i: remove){
+                            allSensorMessages.remove(i);
 
                         }
-                        System.out.println("new list of all sensor readings" + allReadings);
+                        System.out.println("Received Sensor readings" + allSensorMessages);
                     }
                 }
             }
@@ -197,11 +201,8 @@ public class main {
         }
     }
 
-    private static void checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(List<String> allReadings, SensorMessage sensorMessage, List<LocalTime> allTimeStamps) {
-        if(!allReadings.contains(sensorMessage.eventId)) {
-            allReadings.add(sensorMessage.eventId);
-            allTimeStamps.add(sensorMessage.timeFormattedTimeStamp);
-        }
+    private static boolean doesMessageEventIdAlreadyExistInAllEventIDsList(List<String> allReadings, SensorMessage sensorMessage) {
+       return !allReadings.contains(sensorMessage.eventId);
     }
 
     private static void deleteQueue(String queueUrl) {
