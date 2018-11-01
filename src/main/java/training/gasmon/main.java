@@ -10,41 +10,21 @@ import com.amazonaws.services.sns.util.Topics;
 import com.amazonaws.services.sqs.model.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonDeserializer;
 import com.amazonaws.services.sns.AmazonSNS;
-import com.amazonaws.services.sns.AmazonSNSClient;
-import com.amazonaws.services.sns.model.CreateTopicRequest;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClient;
-import org.joda.time.LocalTime;
 import com.amazonaws.services.sqs.AmazonSQS;
 import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
 import com.amazonaws.services.sqs.model.CreateQueueRequest;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
+import org.joda.time.LocalTime;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Date;
-import java.util.List;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public class main {
 
     public static void main(String[] args) {
-
-//        try {
-//            TimeUnit.SECONDS.sleep(60);
-//        } catch (InterruptedException e){
-//            defaultErrorMessage(e.getMessage());
-//        }
 
         String bucket_name = "apprentices2018gasmon-locationss3bucket-7cafghqlcfch";
         String key_name = "locations.json";
@@ -52,16 +32,17 @@ public class main {
         String queueUrl = null;
 
         final AmazonS3 s3 = AmazonS3ClientBuilder.defaultClient();
+
         try {
+            AmazonSQS queueClient = AmazonSQSClientBuilder.defaultClient();
+
             S3Object o = s3.getObject(bucket_name, key_name);
             S3ObjectInputStream s3is = o.getObjectContent();
             String result = getStringFromInputStream(s3is);
             s3is.close();
 
-            List<Location> locationInfo = getListOfLocationsFromJson(result);
+            List<Location> locationInfo = getListOfLocations(result);
             System.out.println(locationInfo);
-
-            AmazonSQS queueClient = AmazonSQSClientBuilder.defaultClient();
 
             ListQueuesResult lq_result = queueClient.listQueues();
             System.out.println("Your SQS Queue URLs:");
@@ -72,61 +53,21 @@ public class main {
                 }
             }
 
+            //1. create queue request
             queueUrl = createQueueRequest(queueUrl, queueClient);
 
             AmazonSNS topicClient = AmazonSNSClientBuilder.defaultClient();
 
             Topics.subscribeQueue(topicClient, queueClient, topicARN, queueUrl);
 
-            try {
-                TimeUnit.SECONDS.sleep(10);
-            } catch (InterruptedException e){
-                defaultErrorMessage(e.getMessage());
-            }
-
-            System.out.println("about to create messages");
-            List<Message> messages = queueClient.receiveMessage(queueUrl).getMessages();
-            for(Message ms : messages ) {
-                System.out.println(ms);
-            }
-
+            receiveMessagesInList(queueUrl, queueClient);
+            wait10Seconds();
 
         } catch (AmazonServiceException e) {
             defaultErrorMessage(e.getErrorMessage());
         } catch (IOException e) {
             defaultErrorMessage(e.getMessage());
         }
-    }
-
-    private static String createQueueRequest(String queueUrl, AmazonSQS queueClient) {
-        CreateQueueRequest create_request = new CreateQueueRequest("JessQ" + new Date().getTime())
-                .addAttributesEntry("MessageRetentionPeriod", "86400");
-        try {
-            queueUrl = queueClient.createQueue(create_request).getQueueUrl();
-        } catch (AmazonSQSException e) {
-            if (!e.getErrorCode().equals("QueueAlreadyExists")) {
-                throw e;
-            }
-        }
-        return queueUrl;
-    }
-
-    private static void deleteQueue(String queueUrl) {
-        AmazonSQS sqsDelete = AmazonSQSClientBuilder.defaultClient();
-        sqsDelete.deleteQueue(queueUrl);
-    }
-
-    private static void defaultErrorMessage(String errorMessage) {
-        System.err.println(errorMessage);
-        System.exit(1);
-    }
-
-    private static List<Location> getListOfLocationsFromJson(String result) {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        Gson gson = gsonBuilder.create();
-
-        Location[] locations = gson.fromJson(result, Location[].class);
-        return new ArrayList<Location>(Arrays.asList(locations));
     }
 
     private static String getStringFromInputStream(S3ObjectInputStream s3is) {
@@ -157,4 +98,115 @@ public class main {
         return sb.toString();
 
     }
+
+    private static List<Location> getListOfLocationsFromJson(String result) {
+        GsonBuilder gsonBuilder = new GsonBuilder();
+        Gson gson = gsonBuilder.create();
+
+        Location[] locations = gson.fromJson(result, Location[].class);
+        return new ArrayList<Location>(Arrays.asList(locations));
+    }
+
+    private static List<Location> getListOfLocations(String result) {
+        return getListOfLocationsFromJson(result);
+    }
+
+    private static String createQueueRequest(String queueUrl, AmazonSQS queueClient) {
+        CreateQueueRequest create_request = new CreateQueueRequest("JessQ" + new Date().getTime())
+                .addAttributesEntry("MessageRetentionPeriod", "86400");
+        try {
+            queueUrl = queueClient.createQueue(create_request).getQueueUrl();
+        } catch (AmazonSQSException e) {
+            if (!e.getErrorCode().equals("QueueAlreadyExists")) {
+                throw e;
+            }
+        }
+        return queueUrl;
+    }
+
+    private static List<String> receiveMessagesInList(String queueUrl, AmazonSQS queueClient) {
+
+        ReceiveMessageRequest request = new ReceiveMessageRequest(queueUrl).withMessageAttributeNames("ALL");
+        request.setMaxNumberOfMessages(10);
+
+
+
+        List<String> allReadings = new ArrayList<String>();
+        List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
+
+        while (true) {
+
+            List<Message> messages = queueClient.receiveMessage(request).getMessages();
+            for (Message ms : messages) {
+
+                doThing(allReadings, ms, allTimeStamps);
+
+            }
+        }
+
+    }
+
+    private static void wait10Seconds() {
+        try {
+            TimeUnit.SECONDS.sleep(5);
+        } catch (InterruptedException e){
+            defaultErrorMessage(e.getMessage());
+        }
+    }
+
+
+    private static void doThing(List<String> allReadings, Message ms, List<LocalTime> allTimeStamps) {
+        GsonBuilder gsonBuilder = new GsonBuilder();
+        Gson gson = gsonBuilder.create();
+
+        SQSMessage SQSMessage = gson.fromJson(ms.getBody(), SQSMessage.class);
+
+
+        System.out.println(SQSMessage.Message);
+
+        SensorMessage sensorMessage = gson.fromJson(SQSMessage.Message, SensorMessage.class);
+        System.out.println(sensorMessage.timeFormattedTimeStamp);
+
+        sensorMessage.timeFormattedTimeStamp = convertsSensorMessageTimeStampToLocalTime(sensorMessage);
+
+        checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(allReadings, sensorMessage, allTimeStamps);
+    }
+
+    private static void checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(List<String> allReadings, SensorMessage sensorMessage, List<LocalTime> allTimeStamps) {
+        if(!allReadings.contains(sensorMessage.eventId)) {
+            System.out.println("Duplicate message! It has not been added");
+        } else {
+            allReadings.add(sensorMessage.eventId);
+            allTimeStamps.add(sensorMessage.timeFormattedTimeStamp);
+        }
+    }
+
+    private static void deleteQueue(String queueUrl) {
+        AmazonSQS sqsDelete = AmazonSQSClientBuilder.defaultClient();
+        sqsDelete.deleteQueue(queueUrl);
+    }
+
+    private static void defaultErrorMessage(String errorMessage) {
+        System.err.println(errorMessage);
+        System.exit(1);
+    }
+
+    private static LocalTime convertsSensorMessageTimeStampToLocalTime(SensorMessage sensorMessage) {
+
+        Date date = new Date(sensorMessage.timestamp);
+        DateFormat formatter = new SimpleDateFormat("HH:mm:ss.SSS");
+        formatter.setTimeZone(TimeZone.getTimeZone("UTC"));
+        String stringFormattedTimeStamp = formatter.format(date);
+
+        LocalTime timeFormattedTimeStamp = LocalTime.parse(stringFormattedTimeStamp);
+        return timeFormattedTimeStamp;
+    }
+
+//        private static void deleteSensorMessagesIfRecievedAWhileAgo(List<LocalTime> allTimeStamps, SensorMessage sensorMessage) {
+//
+//        for(LocalTime readings : allTimeStamps ) {
+//            if(readings)
+//        }
+//    }
 }
+
