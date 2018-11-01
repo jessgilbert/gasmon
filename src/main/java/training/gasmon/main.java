@@ -89,8 +89,6 @@ public class main {
                     //create an object SQSMessage of whole message and gets the body - sensor message
                     SQSMessage SQSMessage = gson.fromJson(ms.getBody(), SQSMessage.class);
 
-
-
                     //create sensor message object of each SQSMessage message body
                     final SensorMessage sensorMessage = gson.fromJson(SQSMessage.Message, SensorMessage.class);
 
@@ -100,13 +98,14 @@ public class main {
                     //Check if messages are duplicates before adding them to allReadings and timestamp to allTimeStamps
                     checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(allReadings, sensorMessage, allTimeStamps);
 
+                    //prints out each message body as its received
                     System.out.println(SQSMessage.Message);
 
-
-
                     long endTime = System.currentTimeMillis();
+
                     ArrayList<String> remove = new ArrayList<String>();
                     if(endTime - startTime > 10 * 1000) {
+                        startTime = endTime;
                         LocalTime tenSecondsAgo = LocalTime.now().minusSeconds(10);
                         for(String message : allReadings) {
                             if(sensorMessage.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
@@ -118,10 +117,8 @@ public class main {
                             allReadings.remove(i);
 
                         }
-                        System.out.println("new " + allReadings);
+                        System.out.println("new list of all sensor readings" + allReadings);
                     }
-
-
                 }
             }
 
@@ -201,9 +198,7 @@ public class main {
     }
 
     private static void checkIfMessageEventIdIsDuplicateBeforeAddingToAllReadings(List<String> allReadings, SensorMessage sensorMessage, List<LocalTime> allTimeStamps) {
-        if(allReadings.contains(sensorMessage.eventId)) {
-            System.out.println("Duplicate message! It has not been added");
-        } else {
+        if(!allReadings.contains(sensorMessage.eventId)) {
             allReadings.add(sensorMessage.eventId);
             allTimeStamps.add(sensorMessage.timeFormattedTimeStamp);
         }
