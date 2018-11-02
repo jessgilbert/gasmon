@@ -1,6 +1,7 @@
 package training.gasmon;
 
 import com.amazonaws.AmazonServiceException;
+import com.amazonaws.services.dynamodbv2.xspec.S;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.S3Object;
@@ -75,7 +76,9 @@ public class main {
             final List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
 
             long startTime = System.currentTimeMillis();
-            while (true) {
+            LocalTime startTime1 = LocalTime.now();
+            LocalTime startTimePlus1Min = startTime1.plusMinutes(1);
+            while (LocalTime.now().isBefore(startTimePlus1Min)) {
 
                 //List of Messages received
                 List<Message> messages = queueClient.receiveMessage(messageRequest).getMessages();
@@ -106,31 +109,38 @@ public class main {
                     System.out.println(sensorMessage);
 
                     long endTime = System.currentTimeMillis();
-
-                    ArrayList<SensorMessage> remove = new ArrayList<SensorMessage>();
-                    if(endTime - startTime > 10 * 1000) {
-                        startTime = endTime;
-                        LocalTime tenSecondsAgo = LocalTime.now().minusSeconds(10);
-                        for(SensorMessage message : allSensorMessages) {
-                            if(message.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
-                                remove.add(message);
-
-                            }
-                        }
-                        for(SensorMessage i: remove){
-                            allSensorMessages.remove(i);
-
-                        }
-                        System.out.println("Received Sensor readings" + allSensorMessages);
-                    }
+//                    startTime = removeOldMessages(allSensorMessages, startTime, endTime);
                 }
+
             }
+            List<String> allLocationIDs = getListOfLocationID(allSensorMessages);
+            getListOfSensorReadingsByLocationID(allLocationIDs, allSensorMessages);
 
         } catch (AmazonServiceException e) {
             defaultErrorMessage(e.getErrorMessage());
         } catch (IOException e) {
             defaultErrorMessage(e.getMessage());
         }
+    }
+
+    private static long removeOldMessages(List<SensorMessage> allSensorMessages, long startTime, long endTime) {
+        ArrayList<SensorMessage> remove = new ArrayList<SensorMessage>();
+        if(endTime - startTime > 10 * 1000) {
+            startTime = endTime;
+            LocalTime tenSecondsAgo = LocalTime.now().minusSeconds(10);
+            for(SensorMessage message : allSensorMessages) {
+                if(message.timeFormattedTimeStamp.isBefore(tenSecondsAgo)) {
+                    remove.add(message);
+
+                }
+            }
+            for(SensorMessage i: remove){
+                allSensorMessages.remove(i);
+
+            }
+            System.out.println("Received Sensor readings" + allSensorMessages);
+        }
+        return startTime;
     }
 
     private static ReceiveMessageRequest receiveMessageRequest(String queueUrl) {
@@ -226,6 +236,43 @@ public class main {
         return timeFormattedTimeStamp;
     }
 
+    public static List<String> getListOfLocationID(List<SensorMessage> allSensorReadings) {
 
+        List<String> allLocationIDs = new ArrayList<String>();
+
+        for(SensorMessage sensorReading : allSensorReadings) {
+            if(!allLocationIDs.contains(sensorReading.locationId))
+            allLocationIDs.add(sensorReading.locationId);
+        }
+        //Have a list of all the location IDs present
+        return allLocationIDs;
+    }
+
+    public static void getListOfSensorReadingsByLocationID(List<String> allLocationIDs, List<SensorMessage> allSensorReadings) {
+
+        for(String locationID: allLocationIDs) {
+            double totalValue = 0.0;
+            List<SensorMessage> allSensorReadingsByLocationID = new ArrayList<SensorMessage>();
+            for(SensorMessage sensorReading: allSensorReadings) {
+                if (locationID.equals(sensorReading.locationId)) {
+                    allSensorReadingsByLocationID.add(sensorReading);
+                }
+            }
+            for(SensorMessage sensorMessage: allSensorReadingsByLocationID) {
+                totalValue =+ sensorMessage.value;
+            }
+//            System.out.println(allSensorReadingsByLocationID);
+            System.out.println("location ID: " + locationID + " Value: " + totalValue);
+        }
+
+    }
+
+
+
+
+    /*1. go through each sensor reading and make a list of all location ids
+      2. go through each location id in that list and add the sensor readings that match that location ID
+      3. go through each sensor reading for each location id and add values together
+    */
 }
 
