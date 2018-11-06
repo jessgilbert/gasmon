@@ -16,8 +16,12 @@ import com.amazonaws.services.sqs.AmazonSQS;
 import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
 import com.amazonaws.services.sqs.model.CreateQueueRequest;
 import org.joda.time.LocalTime;
+import org.joda.time.Period;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
@@ -75,10 +79,9 @@ public class main {
             final List<String> allEventIDs = new ArrayList<String>();
             final List<LocalTime> allTimeStamps = new ArrayList<LocalTime>();
 
-            long startTime = System.currentTimeMillis();
-            LocalTime startTime1 = LocalTime.now();
-            LocalTime startTimePlus1Min = startTime1.plusMinutes(1);
-            while (LocalTime.now().isBefore(startTimePlus1Min)) {
+            LocalTime startTime = LocalTime.now();
+            LocalTime startTimePlus6Mins = startTime.plusMinutes(6);
+            while (true) {
 
                 //List of Messages received
                 List<Message> messages = queueClient.receiveMessage(messageRequest).getMessages();
@@ -108,13 +111,22 @@ public class main {
                     //prints out each message body as its received
                     System.out.println(sensorMessage);
 
-                    long endTime = System.currentTimeMillis();
-//                    startTime = removeOldMessages(allSensorMessages, startTime, endTime);
-                }
+                    //if it has been 6 minutes since the start time
+                    if(LocalTime.now().isAfter(startTime.plusMinutes(6))) {
+                        //make a list of all the location ids received
+                        List<String> allLocationIDs = getListOfLocationID(allSensorMessages);
+                        String sb = getListOfSensorReadingsByLocationID(allLocationIDs, allSensorMessages, startTime);
+                        try {
+                            Files.write(Paths.get("test4.csv"), sb.getBytes(), StandardOpenOption.APPEND);
+                        } catch(IOException e) {
 
+                        }
+                        System.out.println("done");
+                        startTime = startTime.plusMinutes(1);
+                    }
+
+                }
             }
-            List<String> allLocationIDs = getListOfLocationID(allSensorMessages);
-            getListOfSensorReadingsByLocationID(allLocationIDs, allSensorMessages);
 
         } catch (AmazonServiceException e) {
             defaultErrorMessage(e.getErrorMessage());
@@ -248,31 +260,68 @@ public class main {
         return allLocationIDs;
     }
 
-    public static void getListOfSensorReadingsByLocationID(List<String> allLocationIDs, List<SensorMessage> allSensorReadings) {
+    public static String getListOfSensorReadingsByLocationID(List<String> allLocationIDs, List<SensorMessage> allSensorReadings, LocalTime startTime) throws FileNotFoundException{
 
+
+        StringBuilder sb = new StringBuilder();
+        sb.append('\n');
+
+        //go through each location ID received
         for(String locationID: allLocationIDs) {
+            sb.append(locationID);
+            sb.append(',');
+
+//            System.out.println(locationID);
             double totalValue = 0.0;
+            int amountInList = 0;
+            //make a list
             List<SensorMessage> allSensorReadingsByLocationID = new ArrayList<SensorMessage>();
+            //for each sensor reading in the list of all sensor readings
             for(SensorMessage sensorReading: allSensorReadings) {
-                if (locationID.equals(sensorReading.locationId)) {
+                if (locationID.equals(sensorReading.locationId) && sensorReading.timeFormattedTimeStamp.isAfter(startTime) && sensorReading.timeFormattedTimeStamp.isBefore(startTime.plusMinutes(1))) {
+//                    System.out.println(sensorReading);
+//                    System.out.println(sensorReading.value);
+                    totalValue += sensorReading.value;
+                    ++amountInList;
                     allSensorReadingsByLocationID.add(sensorReading);
+                    // add the sensor reading to the list of sensor readings by location ID if the sensor readings location ID is equal to the current one in the list
+                    // and if the time stamp is after the start time and before the start time after a minute
                 }
             }
-            for(SensorMessage sensorMessage: allSensorReadingsByLocationID) {
-                totalValue =+ sensorMessage.value;
-            }
+            //for each sensor message in the new list by location IDs add the value to totalValue and plus one to the amount in the list
 //            System.out.println(allSensorReadingsByLocationID);
-            System.out.println("location ID: " + locationID + " Value: " + totalValue);
-        }
+            // make total value equal to the values of all divided by the amount in this list
+            totalValue = totalValue / amountInList;
+//            System.out.println(amountInList);
 
+            System.out.println("location ID: " + locationID + " Value: " + totalValue + " for time interval between " + startTime + " - " + startTime.plusMinutes(1));
+
+            sb.append(totalValue);
+            sb.append(',');
+            sb.append(startTime.plusMinutes(1));
+            sb.append(',');
+        }
+        return sb.toString();
     }
 
-
+//    public static void CSVFileWriter(List<SensorMessage> ) throws FileNotFoundException {
+//        PrintWriter printWriter = new PrintWriter(new File("test.csv"));
+//        StringBuilder sb = new StringBuilder();
+//        sb.append()
+//    }
 
 
     /*1. go through each sensor reading and make a list of all location ids
       2. go through each location id in that list and add the sensor readings that match that location ID
       3. go through each sensor reading for each location id and add values together
+      4. go through sensor readings with same location id and find timestamps that are a minute apart
+      5. for each value in the sensor reading that have the same location ids and a minute interval apart plus the values together and divide by the amount of values added
+      let it run for 6 minutes, then look from 5 minutes ago and a minute before (5min delay) to find min interval readings
+
+      write locationID and value and start-end time to csv file
+      import file to excel and get a graph for each locationID to show value for each time interval - see if increasing or decreasing
+      OR
+      split location ID to x and y  and plot values? not sure how it would work
     */
 }
 
